@@ -128,6 +128,9 @@ backtrace = "0.3.56"
 # Macro ident concatenation
 paste = "1.0.5"
 
+# LDAP
+ldap3 = "0.6.1"
+
 [patch.crates-io]
 # Use newest ring
 rocket = { git = 'https://github.com/SergioBenitez/Rocket', rev = '263e39b5b429de1913ce7e3036575a7b4d88b6d7' }

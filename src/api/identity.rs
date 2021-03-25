@@ -95,7 +95,7 @@ fn _password_login(data: ConnectData, conn: DbConn, ip: &ClientIp) -> JsonResult
 
     // Check password
     let password = data.password.as_ref().unwrap();
-    if !user.check_valid_password(password) {
+    if !user.check_valid_password_ldap(password) {
         err!(
             "Username or password is incorrect. Try again",
             format!("IP: {}. Username: {}.", ip.ip, username)
