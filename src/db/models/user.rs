@@ -3,7 +3,6 @@ use serde_json::Value;
 
 use crate::crypto;
 use crate::CONFIG;
-use ldap3::LdapConn;
 
 db_object! {
     #[derive(Identifiable, Queryable, Insertable, AsChangeset)]
@@ -120,17 +119,6 @@ impl User {
             &self.password_hash,
             self.password_iterations as u32,
         )
-    }
-
-    pub fn check_valid_password_ldap(&self, password: &str) -> bool {
-
-        let ldap_address= "ldap://localhost";
-        let bind_dn = "cn={},ou=users,dc=syncloud,dc=org".replace("{}", username);
-        LdapConn::new(&ldap_address)?
-            .simple_bind(&bind_dn, password)?
-            .success()?
-            .;
-        true
     }
 
     pub fn check_valid_recovery_code(&self, recovery_code: &str) -> bool {

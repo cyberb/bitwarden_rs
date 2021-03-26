@@ -1,4 +1,5 @@
 use chrono::Local;
+use ldap3::{LdapConn, Scope, SearchEntry};
 use num_traits::FromPrimitive;
 use rocket::{
     request::{Form, FormItems, FromForm},
@@ -9,13 +10,13 @@ use serde_json::Value;
 
 use crate::{
     api::{
-        core::two_factor::{duo, email, email::EmailTokenData, yubikey},
-        ApiResult, EmptyResult, JsonResult,
+        ApiResult,
+        core::two_factor::{duo, email, email::EmailTokenData, yubikey}, EmptyResult, JsonResult,
     },
     auth::ClientIp,
-    db::{models::*, DbConn},
-    error::MapResult,
-    mail, util, CONFIG,
+    CONFIG,
+    db::{DbConn, models::*},
+    error::{Error, MapResult}, mail, util,
 };
 
 pub fn routes() -> Vec<Route> {
@@ -41,7 +42,7 @@ fn login(data: Form<ConnectData>, conn: DbConn, ip: ClientIp) -> JsonResult {
             _check_is_some(&data.device_name, "device_name cannot be blank")?;
             _check_is_some(&data.device_type, "device_type cannot be blank")?;
 
-            _password_login(data, conn, &ip)
+            _login(data, conn, &ip)
         }
         t => err!("Invalid type", t),
     }
@@ -76,32 +77,52 @@ fn _refresh_login(data: ConnectData, conn: DbConn) -> JsonResult {
     })))
 }
 
-fn _password_login(data: ConnectData, conn: DbConn, ip: &ClientIp) -> JsonResult {
+fn _ldap_login(conn: &DbConn, email: &str, password: &str) -> Result<User, Error> {
+    let ldap_address= "ldap://localhost";
+    let username = email.rsplit("@").next().unwrap_or(email);
+    let bind_dn = "cn={},ou=users,dc=syncloud,dc=org".replace("{}", username);
+    let mut connection = LdapConn::new(&ldap_address)?;
+    connection.simple_bind(&bind_dn, password)?.success()?;
+    let (rs, _res) = connection
+        .search(&bind_dn, Scope::OneLevel, "(objectClass=*)", vec!["mail"])?
+        .success()?;
+    let result = rs.first()
+        .and_then(|entry| {
+            let result = SearchEntry::construct(entry.to_owned());
+            let mail = result.attrs.get("mail")?.first()?.to_owned();
+            User::find_by_mail(&mail, conn).or({
+                let mut user = User::new(mail);
+                user.save(conn).ok().map(|_| user)
+            })
+        });
+    result.ok_or(Error::new("error", "error"))
+}
+
+fn _password_login(conn: DbConn, username: &str, password: &str) -> Result<User, Error> {
+    User::find_by_mail(username, &conn)
+        .filter(|user| user.check_valid_password(password))
+        .ok_or(Error::new("error", "error"))
+}
+
+fn _login(data: ConnectData, conn: DbConn, ip: &ClientIp) -> JsonResult {
     // Validate scope
     let scope = data.scope.as_ref().unwrap();
     if scope != "api offline_access" {
         err!("Scope not supported")
     }
 
-    // Get the user
-    let username = data.username.as_ref().unwrap();
-    let user = match User::find_by_mail(username, &conn) {
-        Some(user) => user,
-        None => err!(
-            "Username or password is incorrect. Try again",
-            format!("IP: {}. Username: {}.", ip.ip, username)
-        ),
-    };
-
-    // Check password
     let password = data.password.as_ref().unwrap();
-    if !user.check_valid_password_ldap(password) {
+    let username = data.username.as_ref().unwrap();
+    let authenticated = _ldap_login(&conn, username, password);
+    // let authenticated = _password_login(conn, username, pass);
+    // Get the user
+    if authenticated.is_err() {
         err!(
             "Username or password is incorrect. Try again",
             format!("IP: {}. Username: {}.", ip.ip, username)
         )
-    }
-
+    };
+    let user = authenticated?;
     // Check if the user is disabled
     if !user.enabled {
         err!(

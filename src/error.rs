@@ -52,6 +52,7 @@ use lettre::address::AddressError as AddrErr;
 use lettre::error::Error as LettreErr;
 use lettre::message::mime::FromStrError as FromStrErr;
 use lettre::transport::smtp::Error as SmtpErr;
+use ldap3::LdapError as LdapErr;
 
 #[derive(Serialize)]
 pub struct Empty {}
@@ -88,6 +89,7 @@ make_error! {
 
     DieselConError(DieselConErr): _has_source, _api_error,
     DieselMigError(DieselMigErr): _has_source, _api_error,
+    LdapError(LdapErr): _has_source, _api_error,
 }
 
 impl std::fmt::Debug for Error {
